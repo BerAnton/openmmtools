@@ -244,9 +244,9 @@ class MultiStateSampler(object):
         self.locality = locality
 
         # Online analysis options.
-        self.online_analysis_interval = online_analysis_interval
-        self.online_analysis_target_error = online_analysis_target_error
-        self.online_analysis_minimum_iterations = online_analysis_minimum_iterations
+        self.online_analysis_interval = None
+        self.online_analysis_target_error = 0.0
+        self.online_analysis_minimum_iterations = None
         self._online_error_trap_counter = 0  # Counter for errors in the online estimate
         self._online_error_bank = []
 
