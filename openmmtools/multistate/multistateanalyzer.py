@@ -24,38 +24,38 @@ import abc
 import copy
 import inspect
 import logging
-from packaging.version import Version
 import re
-from typing import Optional, NamedTuple, Union
+from typing import NamedTuple, Optional, Union
 
 import mdtraj
 import numpy as np
+from packaging.version import Version
+
 try:
     import openmm
     import openmm.unit as units
 except ImportError:  # OpenMM < 7.6
-    from simtk import openmm
     import simtk.unit as units
+    from simtk import openmm
 from scipy.special import logsumexp
 
+from openmmtools import forces, multistate, utils
 from openmmtools.multistate import pymbar
-from openmmtools import multistate, utils, forces
 from openmmtools.multistate.pymbar import (
+    MBAR,
     statistical_inefficiency_multiple,
     subsample_correlated_data,
-    MBAR,
 )
-
 
 ABC = abc.ABC
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    'PhaseAnalyzer',
-    'MultiStateSamplerAnalyzer',
-    'MultiPhaseAnalyzer',
-    'ObservablesRegistry',
-    'default_observables_registry'
+    "PhaseAnalyzer",
+    "MultiStateSamplerAnalyzer",
+    "MultiPhaseAnalyzer",
+    "ObservablesRegistry",
+    "default_observables_registry",
 ]
 
 # =============================================================================================
@@ -71,6 +71,7 @@ _MDTRAJ_DISTANCE_UNIT = units.nanometers
 # =============================================================================================
 # UTILITY FUNCTIONS
 # =============================================================================================
+
 
 def compute_centroid_distance(positions_group1, positions_group2, weights_group1, weights_group2):
     """Compute the distance between the centers of mass of the two groups.
@@ -102,6 +103,7 @@ def compute_centroid_distance(positions_group1, positions_group2, weights_group1
 # =============================================================================================
 # MODULE CLASSES
 # =============================================================================================
+
 
 class ObservablesRegistry(object):
     """
@@ -145,16 +147,10 @@ class ObservablesRegistry(object):
     def __init__(self):
         """Register Defaults"""
         # Create empty registry
-        self._observables = {'two_state': set(),
-                             'one_state': set(),
-                             'phase': set()}
-        self._errors = {'quad': set(),
-                        'linear': set(),
-                        None: set()}
+        self._observables = {"two_state": set(), "one_state": set(), "phase": set()}
+        self._errors = {"quad": set(), "linear": set(), None: set()}
 
-    def register_two_state_observable(self, name: str,
-                                      error_class: Optional[str]=None,
-                                      re_register: bool=False):
+    def register_two_state_observable(self, name: str, error_class: Optional[str] = None, re_register: bool = False):
         """
         Register a new two state observable, or re-register an existing one.
 
@@ -177,9 +173,7 @@ class ObservablesRegistry(object):
 
         self._register_observable(name, "two_state", error_class, re_register=re_register)
 
-    def register_one_state_observable(self, name: str,
-                                      error_class: Optional[str]=None,
-                                      re_register: bool=False):
+    def register_one_state_observable(self, name: str, error_class: Optional[str] = None, re_register: bool = False):
         """
         Register a new one state observable, or re-register an existing one.
 
@@ -202,9 +196,7 @@ class ObservablesRegistry(object):
 
         self._register_observable(name, "one_state", error_class, re_register=re_register)
 
-    def register_phase_observable(self, name: str,
-                                  error_class: Optional[str]=None,
-                                  re_register: bool=False):
+    def register_phase_observable(self, name: str, error_class: Optional[str] = None, re_register: bool = False):
         """
         Register a new observable defined by phaee, or re-register an existing one.
 
@@ -251,14 +243,14 @@ class ObservablesRegistry(object):
         """
         Observables that require an i and a j state to define the observable accurately between phases
         """
-        return self._get_observables('two_state')
+        return self._get_observables("two_state")
 
     @property
     def observables_defined_by_single_state(self):
         """
         Defined observables which are fully defined by a single state, and not by multiple states such as differences
         """
-        return self._get_observables('one_state')
+        return self._get_observables("one_state")
 
     @property
     def observables_defined_by_phase(self):
@@ -266,7 +258,7 @@ class ObservablesRegistry(object):
         Observables which are defined by the phase as a whole, and not defined by any 1 or more states
         e.g. Standard State Correction
         """
-        return self._get_observables('phase')
+        return self._get_observables("phase")
 
     ##########################################
     # Define the observables which carry error
@@ -290,12 +282,12 @@ class ObservablesRegistry(object):
     @property
     def observables_with_error_adding_quadrature(self):
         """Observable C = A + B, Error eC = sqrt(eA**2 + eB**2)"""
-        return self._get_errors('quad')
+        return self._get_errors("quad")
 
     @property
     def observables_with_error_adding_linear(self):
         """Observable C = A + B, Error eC = eA + eB"""
-        return self._get_errors('linear')
+        return self._get_errors("linear")
 
     @property
     def observables_without_error(self):
@@ -315,14 +307,14 @@ class ObservablesRegistry(object):
     def _cast_observable_name(name) -> str:
         return re.sub(" +", "_", name.lower())
 
-    def _register_observable(self, obs_name: str,
-                             obs_calc_class: str,
-                             obs_error_class: Union[None, str],
-                             re_register: bool=False):
+    def _register_observable(
+        self, obs_name: str, obs_calc_class: str, obs_error_class: Union[None, str], re_register: bool = False
+    ):
         obs_name = self._cast_observable_name(obs_name)
         if not re_register and obs_name in self.observables:
-            raise ValueError("{} is already a registered observable! "
-                             "Consider setting re_register key!".format(obs_name))
+            raise ValueError(
+                "{} is already a registered observable! " "Consider setting re_register key!".format(obs_name)
+            )
         self._check_obs_class(obs_calc_class)
         self._check_obs_error_class(obs_error_class)
         obs_name_set = {obs_name}  # set(single_object) throws an error, set(string) splits each char
@@ -339,29 +331,33 @@ class ObservablesRegistry(object):
         assert obs_class in self._observables, "{} not a known observable class!".format(obs_class)
 
     def _check_obs_error_class(self, obs_error):
-        assert obs_error is None or obs_error in self._errors, \
-            "{} not a known observable error class!".format(obs_error)
+        assert obs_error is None or obs_error in self._errors, "{} not a known observable error class!".format(
+            obs_error
+        )
 
 
 # Create a default registry and register some stock values
 default_observables_registry = ObservablesRegistry()
-default_observables_registry.register_two_state_observable('free_energy', error_class='quad')
-default_observables_registry.register_two_state_observable('entropy', error_class='quad')
-default_observables_registry.register_two_state_observable('enthalpy', error_class='quad')
+default_observables_registry.register_two_state_observable("free_energy", error_class="quad")
+default_observables_registry.register_two_state_observable("entropy", error_class="quad")
+default_observables_registry.register_two_state_observable("enthalpy", error_class="quad")
 
 
 # -----------------------------------------------------------------------------
 # EXCEPTIONS.
 # -----------------------------------------------------------------------------
 
+
 class InsufficientData(Exception):
     """Raised when the data is not sufficient perform the requested analysis."""
+
     pass
 
 
 # -----------------------------------------------------------------------------
 # CACHED PROPERTIES DESCRIPTOR.
 # -----------------------------------------------------------------------------
+
 
 class CachedProperty(object):
     """Analyzer helper descriptor of a cached value with a dependency graph.
@@ -391,12 +387,12 @@ class CachedProperty(object):
         to define this through the ``validator`` decorator.
 
     """
-    def __init__(self, name, dependencies=(), check_changes=False,
-                 default=AttributeError, validator=None):
+
+    def __init__(self, name, dependencies=(), check_changes=False, default=AttributeError, validator=None):
         # Reserved names.
         # TODO make observables CachedProperties?
-        assert name != 'observables'
-        assert name != 'reporter'
+        assert name != "observables"
+        assert name != "reporter"
         # TODO use __setname__() when dropping Python 3.5 support.
         self.name = name
         self.dependencies = dependencies
@@ -430,7 +426,7 @@ class CachedProperty(object):
 
     def _get_default(self, instance):
         if self._default is AttributeError:
-            err_msg = 'Reference before assignment {}.{}'.format(instance, self.name)
+            err_msg = "Reference before assignment {}.{}".format(instance, self.name)
             raise AttributeError(err_msg)
         elif callable(self._default):
             value = self._default(self, instance)
@@ -442,6 +438,7 @@ class CachedProperty(object):
 # ---------------------------------------------------------------------------------------------
 # Phase Analyzers
 # ---------------------------------------------------------------------------------------------
+
 
 class PhaseAnalyzer(ABC):
     """
@@ -534,28 +531,35 @@ class PhaseAnalyzer(ABC):
     ObservablesRegistry
 
     """
-    def __init__(self, reporter, name=None, reference_states=(0, -1),
-                 max_n_iterations=None, analysis_kwargs=None,
-                 registry=default_observables_registry,
-                 use_online_data=True,
-                 use_full_trajectory=False):
+
+    def __init__(
+        self,
+        reporter,
+        name=None,
+        reference_states=(0, -1),
+        max_n_iterations=None,
+        analysis_kwargs=None,
+        registry=default_observables_registry,
+        use_online_data=True,
+        use_full_trajectory=False,
+    ):
         """
         The reporter provides the hook into how to read the data, all other options control where differences are
         measured from and how each phase interfaces with other phases.
         """
         # Arguments validation.
-        if not type(reporter) is multistate.MultiStateReporter:
-            raise ValueError('reporter must be a MultiStateReporter instance')
+        if type(reporter) is not multistate.MultiStateReporter:
+            raise ValueError("reporter must be a MultiStateReporter instance")
         if not isinstance(registry, ObservablesRegistry):
             raise ValueError("Registry must be an instanced ObservablesRegistry")
         if analysis_kwargs is None:
             analysis_kwargs = {}
         elif not isinstance(analysis_kwargs, dict):
-            raise ValueError('analysis_kwargs must be either None or a dictionary')
+            raise ValueError("analysis_kwargs must be either None or a dictionary")
 
         self.registry = registry
         if not reporter.is_open():
-            reporter.open(mode='r')
+            reporter.open(mode="r")
         self._reporter = reporter
 
         # Initialize cached observables so the phase can be retrieved once computed.
@@ -564,7 +568,7 @@ class PhaseAnalyzer(ABC):
         # Internal properties
         self._name = name
         # Start as default sign +, handle all sign conversion at preparation time
-        self._sign = '+'
+        self._sign = "+"
         self._reference_states = None  # Initialize the cache object.
         self.reference_states = reference_states
         self._user_extra_analysis_kwargs = analysis_kwargs  # Store the user-specified (higher priority) keywords
@@ -605,7 +609,7 @@ class PhaseAnalyzer(ABC):
         self._end_thermodynamic_states = None
         self._kT = None
         # Reset cached values that are derived from the reporter.
-        self._invalidate_cache_values('reporter')
+        self._invalidate_cache_values("reporter")
 
     @property
     def name(self):
@@ -729,8 +733,7 @@ class PhaseAnalyzer(ABC):
     def _get_cache_dependency_graph(cls):
         """dict: cached_value -> list of cache values to invalidate."""
         # Retrieve all cached properties.
-        cached_properties = {value for name, value in inspect.getmembers(cls)
-                             if isinstance(value, CachedProperty)}
+        cached_properties = {value for name, value in inspect.getmembers(cls) if isinstance(value, CachedProperty)}
         # Build the dependency graph.
         dependency_graph = {}
         for cached_property in cached_properties:
@@ -741,7 +744,7 @@ class PhaseAnalyzer(ABC):
                     dependency_graph[dependency] = {cached_property.name}
         # Hard-code observable dependency since those are not CachedProperties.
         # TODO make observables CachedProperties?
-        dependency_graph['mbar'] = {'observables'}
+        dependency_graph["mbar"] = {"observables"}
         return dependency_graph
 
     def _update_cache(self, key, new_value, check_changes=False):
@@ -783,7 +786,7 @@ class PhaseAnalyzer(ABC):
         dependency_graph = self._get_cache_dependency_graph()
         for k in dependency_graph[key]:
             # Invalidate observables that are in a separate cache.
-            if k == 'observables':
+            if k == "observables":
                 for observable in self.observables:
                     self._computed_observables[observable] = None
             else:
@@ -805,7 +808,7 @@ class PhaseAnalyzer(ABC):
     # Cached properties.
     # -------------------------------------------------------------------------
 
-    max_n_iterations = CachedProperty('max_n_iterations', check_changes=True)
+    max_n_iterations = CachedProperty("max_n_iterations", check_changes=True)
 
     @max_n_iterations.validator
     def max_n_iterations(self, instance, new_value):
@@ -814,7 +817,7 @@ class PhaseAnalyzer(ABC):
             new_value = instance.n_iterations
         return new_value
 
-    use_full_trajectory = CachedProperty('use_full_trajectory', check_changes=True)
+    use_full_trajectory = CachedProperty("use_full_trajectory", check_changes=True)
 
     @use_full_trajectory.validator
     def use_full_trajectory(self, _, new_value):
@@ -822,7 +825,7 @@ class PhaseAnalyzer(ABC):
             raise ValueError("use_full_trajectory must be a boolean!")
         return new_value
 
-    _extra_analysis_kwargs = CachedProperty('_extra_analysis_kwargs', check_changes=True)
+    _extra_analysis_kwargs = CachedProperty("_extra_analysis_kwargs", check_changes=True)
 
     # -------------------------------------------------------------------------
     # Abstract methods.
@@ -879,7 +882,7 @@ class PhaseAnalyzer(ABC):
         if truncate_max_n_iterations:
             for i, energies in enumerate(energy_data):
                 # The +1 accounts for minimization iteration.
-                energy_data[i] = energies[:self.max_n_iterations+1]
+                energy_data[i] = energies[: self.max_n_iterations + 1]
 
         # Convert from (n_iterations, n_replicas, n_states) to (n_replicas, n_states, n_iterations).
         for i, energies in enumerate(energy_data):
@@ -890,7 +893,7 @@ class PhaseAnalyzer(ABC):
         # TODO: Figure out what format we need the data in to be useful for both global and local MBAR/WHAM
         # For now, we simply can't handle analysis of non-global calculations.
         if np.any(neighborhoods == 0):
-            raise Exception('Non-global MBAR analysis not implemented yet.')
+            raise Exception("Non-global MBAR analysis not implemented yet.")
 
         return sampled_energy_matrix, unsampled_energy_matrix, neighborhoods, replicas_state_indices
 
@@ -903,7 +906,7 @@ class PhaseAnalyzer(ABC):
             # Check that logZ and log_weights have per-iteration data
             # If either of these return a ValueError, then no history data are available
             _ = self._reporter.read_logZ(0)
-            _ = self._reporter.read_online_analysis_data(0, 'log_weights')
+            _ = self._reporter.read_online_analysis_data(0, "log_weights")
             return True
         except ValueError:
             return False
@@ -921,7 +924,8 @@ class PhaseAnalyzer(ABC):
 
         """
         log_weights = np.array(
-            self._reporter.read_online_analysis_data(slice(None, None), 'log_weights')['log_weights'])
+            self._reporter.read_online_analysis_data(slice(None, None), "log_weights")["log_weights"]
+        )
 
         log_weights = np.moveaxis(log_weights, 0, -1)
         return log_weights
@@ -991,7 +995,7 @@ class PhaseAnalyzer(ABC):
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def reformat_energies_for_mbar(u_kln: np.ndarray, n_k: Optional[np.ndarray]=None):
+    def reformat_energies_for_mbar(u_kln: np.ndarray, n_k: Optional[np.ndarray] = None):
         """
         Convert [replica, state, iteration] data into [state, total_iteration] data
 
@@ -1026,11 +1030,11 @@ class PhaseAnalyzer(ABC):
         """
         k, l, n = u_kln.shape
         if n_k is None:
-            n_k = np.ones(k, dtype=np.int32)*n
+            n_k = np.ones(k, dtype=np.int32) * n
         u_ln = np.zeros([l, n_k.sum()])
         n_counter = 0
         for k_index in range(k):
-            u_ln[:, n_counter:n_counter + n_k[k_index]] = u_kln[k_index, :, :n_k[k_index]]
+            u_ln[:, n_counter : n_counter + n_k[k_index]] = u_kln[k_index, :, : n_k[k_index]]
             n_counter += n_k[k_index]
         return u_ln
 
@@ -1053,8 +1057,8 @@ class PhaseAnalyzer(ABC):
         """
         # Initialize MBAR (computing free energy estimates, which may take a while)
         logger.debug("Computing free energy differences...")
-        self.mbar = MBAR(energy_matrix, samples_per_state, **self._extra_analysis_kwargs)
-        logger.debug('Done.')
+        self.mbar = MBAR(energy_matrix, samples_per_state, solver_protocol="robust", **self._extra_analysis_kwargs)
+        logger.debug("Done.")
         return self.mbar
 
     def _read_online_data_if_present(self):
@@ -1062,8 +1066,8 @@ class PhaseAnalyzer(ABC):
         Attempt to read the online analysis data needed to hot-start the output
         """
         try:
-            online_f_k = self.reporter.read_online_analysis_data(None, 'f_k')['f_k']
-            self._online_data = {'initial_f_k': online_f_k}
+            online_f_k = self.reporter.read_online_analysis_data(None, "f_k")["f_k"]
+            self._online_data = {"initial_f_k": online_f_k}
         except ValueError:
             self._online_data = None
 
@@ -1071,7 +1075,7 @@ class PhaseAnalyzer(ABC):
     # Analysis combination.
     # -------------------------------------------------------------------------
 
-    def _combine_phases(self, other, operator='+'):
+    def _combine_phases(self, other, operator="+"):
         """
         Workhorse function when creating a :class:`MultiPhaseAnalyzer` object by combining single
         :class:`PhaseAnalyzer`s
@@ -1080,7 +1084,7 @@ class PhaseAnalyzer(ABC):
         names = []
         signs = [self._sign]
         # Reset self._sign
-        self._sign = '+'
+        self._sign = "+"
         if self.name is None:
             names.append(multistate.utils.generate_phase_name(self.name, []))
         else:
@@ -1095,42 +1099,42 @@ class PhaseAnalyzer(ABC):
                 final_new_names.append(multistate.utils.generate_phase_name(name, other_names + names))
             names.extend(final_new_names)
             for new_sign in new_signs:
-                if operator != '+' and new_sign == '+':
-                    signs.append('-')
+                if operator != "+" and new_sign == "+":
+                    signs.append("-")
                 else:
-                    signs.append('+')
+                    signs.append("+")
             phases.extend(new_phases)
         elif isinstance(other, PhaseAnalyzer):
             names.append(multistate.utils.generate_phase_name(other.name, names))
-            if operator != '+' and other._sign == '+':
-                signs.append('-')
+            if operator != "+" and other._sign == "+":
+                signs.append("-")
             else:
-                signs.append('+')
+                signs.append("+")
             # Reset the other's sign if it got set to negative
-            other._sign = '+'
+            other._sign = "+"
             phases.append(other)
         else:
             base_err = "cannot {} 'PhaseAnalyzer' and '{}' objects"
-            if operator == '+':
-                err = base_err.format('add', type(other))
+            if operator == "+":
+                err = base_err.format("add", type(other))
             else:
-                err = base_err.format('subtract', type(other))
+                err = base_err.format("subtract", type(other))
             raise TypeError(err)
-        phase_pass = {'phases': phases, 'signs': signs, 'names': names}
+        phase_pass = {"phases": phases, "signs": signs, "names": names}
         return MultiPhaseAnalyzer(phase_pass)
 
     def __add__(self, other):
-        return self._combine_phases(other, operator='+')
+        return self._combine_phases(other, operator="+")
 
     def __sub__(self, other):
-        return self._combine_phases(other, operator='-')
+        return self._combine_phases(other, operator="-")
 
     def __neg__(self):
         """Internally handle the internal sign"""
-        if self._sign == '+':
-            self._sign = '-'
+        if self._sign == "+":
+            self._sign = "-"
         else:
-            self._sign = '+'
+            self._sign = "+"
         return self
 
 
@@ -1199,18 +1203,28 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
 
     """
 
-    def __init__(self, *args, unbias_restraint=True, restraint_energy_cutoff='auto',
-                 restraint_distance_cutoff='auto', n_equilibration_iterations=None, statistical_inefficiency=None, max_subset=100, **kwargs):
-
+    def __init__(
+        self,
+        *args,
+        unbias_restraint=True,
+        restraint_energy_cutoff="auto",
+        restraint_distance_cutoff="auto",
+        n_equilibration_iterations=None,
+        statistical_inefficiency=None,
+        max_subset=100,
+        **kwargs,
+    ):
         # Warn that API is experimental
-        logger.warn('Warning: The openmmtools.multistate API is experimental and may change in future releases')
+        logger.warn("Warning: The openmmtools.multistate API is experimental and may change in future releases")
 
         # super() calls clear() that initialize the cached variables.
         super().__init__(*args, **kwargs)
 
         if statistical_inefficiency and n_equilibration_iterations is None:
-            raise Exception("Cannot specify statistical_inefficiency without n_equilibration_iterations, because " \
-            "otherwise n_equilibration_iterations cannot be computed for the given statistical_inefficiency.")
+            raise Exception(
+                "Cannot specify statistical_inefficiency without n_equilibration_iterations, because "
+                "otherwise n_equilibration_iterations cannot be computed for the given statistical_inefficiency."
+            )
 
         # Cached values with dependencies.
         self.unbias_restraint = unbias_restraint
@@ -1221,11 +1235,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         self._max_subset = max_subset
 
     # TODO use class syntax and add docstring after dropping python 3.5 support.
-    _MixingStatistics = NamedTuple('MixingStatistics', [
-        ('transition_matrix', np.ndarray),
-        ('eigenvalues', np.ndarray),
-        ('statistical_inefficiency', np.ndarray)
-    ])
+    _MixingStatistics = NamedTuple(
+        "MixingStatistics",
+        [("transition_matrix", np.ndarray), ("eigenvalues", np.ndarray), ("statistical_inefficiency", np.ndarray)],
+    )
 
     def clear(self):
         """Reset all cached objects.
@@ -1296,11 +1309,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # Compute state index statistical inefficiency of stationary data.
         # states[n][k] is the state index of replica k at iteration n, but
         # the functions wants a list of timeseries states[k][n].
-        states_kn = np.transpose(states[number_equilibrated:self.max_n_iterations,])
+        states_kn = np.transpose(states[number_equilibrated : self.max_n_iterations,])
         g = statistical_inefficiency_multiple(states_kn)
 
-        return self._MixingStatistics(transition_matrix=t_ij, eigenvalues=mu,
-                                      statistical_inefficiency=g)
+        return self._MixingStatistics(transition_matrix=t_ij, eigenvalues=mu, statistical_inefficiency=g)
 
     def show_mixing_statistics(self, cutoff=0.05, number_equilibrated=None):
         """
@@ -1341,16 +1353,21 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # Estimate second eigenvalue and equilibration time.
         perron_eigenvalue = mixing_statistics.eigenvalues[1]
         if perron_eigenvalue >= 1:
-            logger.info('Perron eigenvalue is unity; Markov chain is decomposable.')
+            logger.info("Perron eigenvalue is unity; Markov chain is decomposable.")
         else:
             equilibration_timescale = 1.0 / (1.0 - perron_eigenvalue)
-            logger.info('Perron eigenvalue is {0:.5f}; state equilibration timescale '
-                        'is ~ {1:.1f} iterations'.format(perron_eigenvalue, equilibration_timescale)
+            logger.info(
+                "Perron eigenvalue is {0:.5f}; state equilibration timescale " "is ~ {1:.1f} iterations".format(
+                    perron_eigenvalue, equilibration_timescale
+                )
             )
 
         # Print information about replica state index statistical efficiency.
-        logger.info('Replica state index statistical inefficiency is '
-                    '{:.3f}'.format(mixing_statistics.statistical_inefficiency))
+        logger.info(
+            "Replica state index statistical inefficiency is " "{:.3f}".format(
+                mixing_statistics.statistical_inefficiency
+            )
+        )
 
     def _get_radially_symmetric_restraint_data(self):
         """Return the radially-symmetric restraint force used in the bound state.
@@ -1372,39 +1389,40 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             If there are no radially-symmetric restraints in the bound state.
 
         """
-        logger.debug('Trying to get radially symmetric restraint data...')
+        logger.debug("Trying to get radially symmetric restraint data...")
 
         # Check cached value.
         if self._radially_symmetric_restraint_data is not None:
             return self._radially_symmetric_restraint_data
 
         # Isolate the end states.
-        logger.debug('Retrieving end thermodynamic states...')
+        logger.debug("Retrieving end thermodynamic states...")
         end_states = self._get_end_thermodynamic_states()
 
         # Isolate restraint force.
-        logger.debug('Isolating restraint force...')
+        logger.debug("Isolating restraint force...")
         system = end_states[0].system
         restraint_parent_class = forces.RadiallySymmetricRestraintForce
         # This raises forces.NoForceFoundError if there's no restraint to unbias.
-        force_idx, restraint_force = forces.find_forces(system, force_type=restraint_parent_class,
-                                                                only_one=True, include_subclasses=True)
+        force_idx, restraint_force = forces.find_forces(
+            system, force_type=restraint_parent_class, only_one=True, include_subclasses=True
+        )
         # The force is owned by the System, we have to copy to avoid the memory to be deallocated.
-        logger.debug('Deep copying restraint force...')
+        logger.debug("Deep copying restraint force...")
         restraint_force = copy.deepcopy(restraint_force)
 
         # Check that the restraint was turned on at the end states.
         if end_states[0].lambda_restraints != 1.0 or end_states[-1].lambda_restraints != 1.0:
-            raise TypeError('Cannot unbias a restraint that is turned off at one of the end states.')
+            raise TypeError("Cannot unbias a restraint that is turned off at one of the end states.")
 
         # Read the centroid weights (mass) of the restrained particles.
-        logger.debug('Retrieving particle masses...')
+        logger.debug("Retrieving particle masses...")
         weights_group1 = [system.getParticleMass(i) for i in restraint_force.restrained_atom_indices1]
         weights_group2 = [system.getParticleMass(i) for i in restraint_force.restrained_atom_indices2]
 
         # Cache value so that we won't have to deserialize the system again.
         self._radially_symmetric_restraint_data = restraint_force, weights_group1, weights_group2
-        logger.debug('Done.')
+        logger.debug("Done.")
         return self._radially_symmetric_restraint_data
 
     # -------------------------------------------------------------------------
@@ -1445,8 +1463,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             energies, _, neighborhoods, replica_state_indices = self._read_energies(truncate_max_n_iterations=True)
         elif (energies is not None) != (replica_state_indices is not None):
             # XOR operator
-            raise ValueError("If input_energy or input_sampled_states are provided, "
-                             "then the other cannot be None due to ambiguity!")
+            raise ValueError(
+                "If input_energy or input_sampled_states are provided, "
+                "then the other cannot be None due to ambiguity!"
+            )
 
         n_replicas, n_states, n_iterations = energies.shape
 
@@ -1456,7 +1476,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         if self.has_log_weights:
             has_log_weights = True
             log_weights = self.read_log_weights()
-            f_l = - self.read_logZ(iteration=-1)  # use last (best) estimate of free energies
+            f_l = -self.read_logZ(iteration=-1)  # use last (best) estimate of free energies
             logger.debug("log_weights: {}".format(log_weights))
             logger.debug("f_k: {}".format(f_l))
 
@@ -1470,8 +1490,9 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
 
             # Correct for potentially-changing log weights
             if has_log_weights:
-                u_n[iteration] += - np.sum(log_weights[states_slice, iteration]) \
-                    + logsumexp(-f_l[:] + log_weights[:, iteration])
+                u_n[iteration] += -np.sum(log_weights[states_slice, iteration]) + logsumexp(
+                    -f_l[:] + log_weights[:, iteration]
+                )
 
         logger.debug("Done.")
         return u_n
@@ -1497,7 +1518,9 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
 
         # Use the cached information to generate the equilibration data.
         sampled_energy_matrix, unsampled_energy_matrix, neighborhoods, replicas_state_indices = energy_data
-        number_equilibrated, g_t, Neff_max = self._get_equilibration_data(sampled_energy_matrix, neighborhoods, replicas_state_indices)
+        number_equilibrated, g_t, Neff_max = self._get_equilibration_data(
+            sampled_energy_matrix, neighborhoods, replicas_state_indices
+        )
 
         logger.debug("Assembling uncorrelated energies...")
 
@@ -1513,16 +1536,18 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         n_replicas, n_sampled_states, n_iterations = sampled_energy_matrix.shape
         _, n_unsampled_states, _ = unsampled_energy_matrix.shape
         n_total_states = n_sampled_states + n_unsampled_states
-        energy_matrix = np.zeros([n_total_states, n_iterations*n_replicas])
+        energy_matrix = np.zeros([n_total_states, n_iterations * n_replicas])
         samples_per_state = np.zeros([n_total_states], dtype=int)
 
         # Compute shift index for how many unsampled states there were.
         # This assume that we set an equal number of unsampled states at the end points.
-        first_sampled_state = int(n_unsampled_states/2.0)
+        first_sampled_state = int(n_unsampled_states / 2.0)
         last_sampled_state = n_total_states - first_sampled_state
 
         # Cast the sampled energy matrix from kln' to ln form.
-        energy_matrix[first_sampled_state:last_sampled_state, :] = self.reformat_energies_for_mbar(sampled_energy_matrix)
+        energy_matrix[first_sampled_state:last_sampled_state, :] = self.reformat_energies_for_mbar(
+            sampled_energy_matrix
+        )
         # Determine how many samples and which states they were drawn from.
         unique_sampled_states, counts = np.unique(replicas_state_indices, return_counts=True)
         # Assign those counts to the correct range of states.
@@ -1536,9 +1561,9 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             # Do online data only if present and already exists as stored in self._online_data
             temp_online = copy.deepcopy(self._online_data)
             f_k_i = np.zeros(n_sampled_states + n_unsampled_states)
-            online_f_k = temp_online['initial_f_k']
+            online_f_k = temp_online["initial_f_k"]
             f_k_i[first_sampled_state:last_sampled_state] = online_f_k
-            temp_online['initial_f_k'] = f_k_i
+            temp_online["initial_f_k"] = f_k_i
             # Re-set the extra analysis_
             self._extra_analysis_kwargs = {**temp_online, **self._user_extra_analysis_kwargs}
         else:
@@ -1550,7 +1575,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         self._decorrelated_u_ln = energy_matrix
         self._decorrelated_N_l = samples_per_state
 
-        logger.debug('Done.')
+        logger.debug("Done.")
         return self._decorrelated_u_ln, self._decorrelated_N_l
 
     def _compute_mbar_unbiased_energies(self):
@@ -1571,7 +1596,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             The total number of samples drawn from each state (including the
             unbiased states).
         """
-        logger.debug('Checking if we need to unbias the restraint...')
+        logger.debug("Checking if we need to unbias the restraint...")
 
         # Check if we need to unbias the restraint.
         unbias_restraint = self.unbias_restraint
@@ -1580,7 +1605,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
                 restraint_data = self._get_radially_symmetric_restraint_data()
             except (TypeError, forces.NoForceFoundError) as e:
                 # If we don't need to unbias the restraint there's nothing else to do.
-                logger.debug(str(e) + ' The restraint will not be unbiased.')
+                logger.debug(str(e) + " The restraint will not be unbiased.")
                 unbias_restraint = False
         if not unbias_restraint:
             self._unbiased_decorrelated_u_ln = self._decorrelated_u_ln
@@ -1589,26 +1614,25 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
 
         # Compute the restraint energies/distances.
         restraint_force, weights_group1, weights_group2 = restraint_data
-        logger.debug('Found {} restraint. The restraint will be unbiased.'.format(restraint_force.__class__.__name__))
-        logger.debug('Receptor restrained atoms: {}'.format(restraint_force.restrained_atom_indices1))
-        logger.debug('ligand restrained atoms: {}'.format(restraint_force.restrained_atom_indices2))
-
+        logger.debug("Found {} restraint. The restraint will be unbiased.".format(restraint_force.__class__.__name__))
+        logger.debug("Receptor restrained atoms: {}".format(restraint_force.restrained_atom_indices1))
+        logger.debug("ligand restrained atoms: {}".format(restraint_force.restrained_atom_indices2))
 
         # Compute restraint energies/distances.
-        logger.debug('Computing restraint energies...')
-        energies_ln, distances_ln = self._compute_restraint_energies(restraint_force, weights_group1,
-                                                                     weights_group2)
+        logger.debug("Computing restraint energies...")
+        energies_ln, distances_ln = self._compute_restraint_energies(restraint_force, weights_group1, weights_group2)
 
         # Convert energies to kT unit for comparison to energy cutoff.
         energies_ln = energies_ln / self.kT
-        logger.debug('Restraint energy mean: {} kT; std: {} kT'
-                     ''.format(np.mean(energies_ln), np.std(energies_ln, ddof=1)))
+        logger.debug(
+            "Restraint energy mean: {} kT; std: {} kT" "".format(np.mean(energies_ln), np.std(energies_ln, ddof=1))
+        )
 
         # Don't modify the cached decorrelated energies.
         u_ln = copy.deepcopy(self._decorrelated_u_ln)
         N_l = copy.deepcopy(self._decorrelated_N_l)
         n_decorrelated_iterations_ln = u_ln.shape[1]
-        assert len(energies_ln) == n_decorrelated_iterations_ln, '{}, {}'.format(energies_ln.shape, u_ln.shape)
+        assert len(energies_ln) == n_decorrelated_iterations_ln, "{}, {}".format(energies_ln.shape, u_ln.shape)
         assert len(self._decorrelated_state_indices_ln) == n_decorrelated_iterations_ln
 
         # Determine the cutoffs to use for the simulations.
@@ -1623,8 +1647,9 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # Determine which samples are outside the cutoffs or have to be truncated.
         columns_to_keep = []
         for iteration_ln_idx, state_idx in enumerate(self._decorrelated_state_indices_ln):
-            if ((apply_energy_cutoff and energies_ln[iteration_ln_idx] > restraint_energy_cutoff) or
-                    (apply_distance_cutoff and distances_ln[iteration_ln_idx] > restraint_distance_cutoff)):
+            if (apply_energy_cutoff and energies_ln[iteration_ln_idx] > restraint_energy_cutoff) or (
+                apply_distance_cutoff and distances_ln[iteration_ln_idx] > restraint_distance_cutoff
+            ):
                 # Update the number of samples generated from its state.
                 N_l[state_idx + first_sampled_state_idx] -= 1
             else:
@@ -1632,10 +1657,12 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
 
         # Drop all columns that exceed the cutoff(s).
         n_discarded = n_decorrelated_iterations_ln - len(columns_to_keep)
-        logger.debug('Discarding {}/{} samples outside the cutoffs (restraint_distance_cutoff: {}, '
-                     'restraint_energy_cutoff: {}).'.format(n_discarded, n_decorrelated_iterations_ln,
-                                                            restraint_distance_cutoff,
-                                                            restraint_energy_cutoff))
+        logger.debug(
+            "Discarding {}/{} samples outside the cutoffs (restraint_distance_cutoff: {}, "
+            "restraint_energy_cutoff: {}).".format(
+                n_discarded, n_decorrelated_iterations_ln, restraint_distance_cutoff, restraint_energy_cutoff
+            )
+        )
         u_ln = u_ln[:, columns_to_keep]
 
         # Add new end states that don't include the restraint.
@@ -1652,8 +1679,8 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # Expand the f_k_i if need be
         try:
             f_k_i_new = np.zeros(n_states_new, N_l.dtype)
-            f_k_i_new[1:-1] = self._extra_analysis_kwargs['initial_f_k']  # This triggers the KeyError Trap
-            self._extra_analysis_kwargs['initial_f_k'] = f_k_i_new  # This triggers the ValueError trap
+            f_k_i_new[1:-1] = self._extra_analysis_kwargs["initial_f_k"]  # This triggers the KeyError Trap
+            self._extra_analysis_kwargs["initial_f_k"] = f_k_i_new  # This triggers the ValueError trap
         except (KeyError, ValueError):
             # Not there, move on, or already set nothing to do
             pass
@@ -1662,7 +1689,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         self._unbiased_decorrelated_u_ln = u_ln_new
         self._unbiased_decorrelated_N_l = N_l_new
 
-        logger.debug('Done.')
+        logger.debug("Done.")
         return self._unbiased_decorrelated_u_ln, self._unbiased_decorrelated_N_l
 
     def _compute_restraint_energies(self, restraint_force, weights_group1, weights_group2):
@@ -1708,7 +1735,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             decorrelated = np.zeros(n_frames_ln, dtype=dtype)
             for replica_idx in range(self.n_replicas):
                 for iteration_idx, iteration in enumerate(decorrelated_iterations):
-                    frame_idx = replica_idx*len(decorrelated_iterations) + iteration_idx
+                    frame_idx = replica_idx * len(decorrelated_iterations) + iteration_idx
                     decorrelated[frame_idx] = cached_dict[iteration][replica_idx]
             return decorrelated * unit
 
@@ -1719,8 +1746,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         if compute_distances and decorrelated_iterations_set.issubset(set(self._restraint_distances)):
             compute_distances = False
         if decorrelated_iterations_set.issubset(set(self._restraint_energies)) and not compute_distances:
-            return (extract_decorrelated(self._restraint_energies, dtype=np.float64, unit=_OPENMM_ENERGY_UNIT),
-                    extract_decorrelated(self._restraint_distances, dtype=np.float32, unit=_MDTRAJ_DISTANCE_UNIT))
+            return (
+                extract_decorrelated(self._restraint_energies, dtype=np.float64, unit=_OPENMM_ENERGY_UNIT),
+                extract_decorrelated(self._restraint_distances, dtype=np.float32, unit=_MDTRAJ_DISTANCE_UNIT),
+            )
 
         # Don't modify the original restraint force.
         restraint_force = copy.deepcopy(restraint_force)
@@ -1732,13 +1761,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         mapped_restrained_indices1 = restraint_force.restrained_atom_indices1
         mapped_restrained_indices2 = restraint_force.restrained_atom_indices2
 
-        mapped_restrained_indices1 = [analysis_indices.index(index)
-                                      for index in mapped_restrained_indices1]
-        mapped_restrained_indices2 = [analysis_indices.index(index)
-                                      for index in mapped_restrained_indices2]
+        mapped_restrained_indices1 = [analysis_indices.index(index) for index in mapped_restrained_indices1]
+        mapped_restrained_indices2 = [analysis_indices.index(index) for index in mapped_restrained_indices2]
 
-        mapped_restrained_indices = (mapped_restrained_indices1 +
-                                     mapped_restrained_indices2)
+        mapped_restrained_indices = mapped_restrained_indices1 + mapped_restrained_indices2
 
         # Create new system with only solute and restraint forces.
         reduced_system = openmm.System()
@@ -1754,7 +1780,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # If we need to image the molecule, we need an MDTraj trajectory.
         if compute_distances and is_periodic:
             # Create topology with only the restrained atoms.
-            serialized_topography = self._reporter.read_dict('metadata/topography')
+            serialized_topography = self._reporter.read_dict("metadata/topography")
             topography = utils.deserialize(serialized_topography)
             topology = topography.topology
             topology = topology.subset(self._reporter.analysis_particle_indices)
@@ -1765,8 +1791,8 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             trajectory = mdtraj.Trajectory(xyz=np.zeros((topology.n_atoms, 3)), topology=topology)
 
         # Create context used to compute the energies.
-        integrator = openmm.VerletIntegrator(1.0*units.femtosecond)
-        platform = openmm.Platform.getPlatformByName('CPU')
+        integrator = openmm.VerletIntegrator(1.0 * units.femtosecond)
+        platform = openmm.Platform.getPlatformByName("CPU")
         context = openmm.Context(reduced_system, integrator, platform)
 
         # TODO: we need to provide a reporter generator to iterate over single
@@ -1775,11 +1801,12 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # iterations_groups = itertools.groupby(enumerate(decorrelated_iterations), key=lambda x: int(x[1] / chunk_size))
 
         # Pre-computing energies/distances.
-        logger.debug('Computing restraint energies/distances...')
+        logger.debug("Computing restraint energies/distances...")
         for iteration_idx, iteration in enumerate(decorrelated_iterations):
             # Check if we have already computed this energy/distance.
-            if (iteration in self._restraint_energies and
-                    (not compute_distances or iteration in self._restraint_distances)):
+            if iteration in self._restraint_energies and (
+                not compute_distances or iteration in self._restraint_distances
+            ):
                 continue
             self._restraint_energies[iteration] = {}
             if compute_distances:
@@ -1787,8 +1814,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
 
             # Read sampler states only if we haven't computed this iteration yet.
             # Obtain solute only sampler states.
-            sampler_states = self._reporter.read_sampler_states(iteration=iteration,
-                                                                analysis_particles_only=True)
+            sampler_states = self._reporter.read_sampler_states(iteration=iteration, analysis_particles_only=True)
 
             for replica_idx, sampler_state in enumerate(sampler_states):
                 sliced_sampler_state = sampler_state[mapped_restrained_indices]
@@ -1804,10 +1830,12 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
                         if is_periodic:
                             # Update trajectory positions/box vectors.
                             trajectory.xyz = (sampler_state.positions / _MDTRAJ_DISTANCE_UNIT).astype(np.float32)
-                            trajectory.unitcell_vectors = np.array([sampler_state.box_vectors / _MDTRAJ_DISTANCE_UNIT],
-                                                                   dtype=np.float32)
-                            trajectory.image_molecules(inplace=True, anchor_molecules=anchor_molecules,
-                                                       other_molecules=imaged_molecules)
+                            trajectory.unitcell_vectors = np.array(
+                                [sampler_state.box_vectors / _MDTRAJ_DISTANCE_UNIT], dtype=np.float32
+                            )
+                            trajectory.image_molecules(
+                                inplace=True, anchor_molecules=anchor_molecules, other_molecules=imaged_molecules
+                            )
                             positions_group1 = trajectory.xyz[0][mapped_restrained_indices1]
                             positions_group2 = trajectory.xyz[0][mapped_restrained_indices2]
                         else:
@@ -1817,21 +1845,24 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
                             positions_group2 /= _MDTRAJ_DISTANCE_UNIT
 
                         # Set output arrays.
-                        distance = compute_centroid_distance(positions_group1, positions_group2,
-                                                             weights_group1, weights_group2)
+                        distance = compute_centroid_distance(
+                            positions_group1, positions_group2, weights_group1, weights_group2
+                        )
                     self._restraint_distances[iteration][replica_idx] = distance
 
-        return (extract_decorrelated(self._restraint_energies, dtype=np.float64, unit=_OPENMM_ENERGY_UNIT),
-                extract_decorrelated(self._restraint_distances, dtype=np.float32, unit=_MDTRAJ_DISTANCE_UNIT))
+        return (
+            extract_decorrelated(self._restraint_energies, dtype=np.float64, unit=_OPENMM_ENERGY_UNIT),
+            extract_decorrelated(self._restraint_distances, dtype=np.float32, unit=_MDTRAJ_DISTANCE_UNIT),
+        )
 
     def _get_use_restraint_cutoff(self):
         """Determine if we need to apply a cutoff on the restraint energies and/or distances."""
         apply_distance_cutoff = isinstance(self.restraint_distance_cutoff, units.Quantity)
         apply_energy_cutoff = isinstance(self.restraint_energy_cutoff, float)
         # When both cutoffs are auto, use distance cutoff.
-        if self.restraint_distance_cutoff == 'auto' and not apply_energy_cutoff:
+        if self.restraint_distance_cutoff == "auto" and not apply_energy_cutoff:
             apply_distance_cutoff = True
-        elif self.restraint_energy_cutoff == 'auto' and self.restraint_distance_cutoff is None:
+        elif self.restraint_energy_cutoff == "auto" and self.restraint_distance_cutoff is None:
             apply_energy_cutoff = True
         return apply_energy_cutoff, apply_distance_cutoff
 
@@ -1845,8 +1876,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # Gather the state restraint energies/distances.
         state_energies = [] if get_energies else None
         state_distances = [] if get_distances else None
-        for state_data, cached_data in [(state_energies, self._restraint_energies),
-                                        (state_distances, self._restraint_distances)]:
+        for state_data, cached_data in [
+            (state_energies, self._restraint_energies),
+            (state_distances, self._restraint_distances),
+        ]:
             if state_data is None:
                 continue
             for iteration, states_data in cached_data.items():
@@ -1871,21 +1904,23 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         """
         # Gather the bound state restraint energies/distances.
         state0_energies, state0_distances = self._get_restraint_energies_distances_at_state(
-            state_idx=0, get_energies=compute_energy_cutoff, get_distances=compute_distance_cutoff)
+            state_idx=0, get_energies=compute_energy_cutoff, get_distances=compute_distance_cutoff
+        )
 
         # Compute cutoff as the 99.9%-percentile of the energies/distances distributions.
         energy_cutoff = None
         distance_cutoff = None
-        err_msg = ('Thermodynamic state 0 has not been sampled enough to '
-                   'determine automatically the restraint {} cutoff.')
+        err_msg = (
+            "Thermodynamic state 0 has not been sampled enough to " "determine automatically the restraint {} cutoff."
+        )
 
         if compute_energy_cutoff:
             if len(state0_energies) == 0:
-                raise InsufficientData(err_msg.format('energy'))
+                raise InsufficientData(err_msg.format("energy"))
             energy_cutoff = np.percentile(state0_energies, 99.9)
         if compute_distance_cutoff:
             if len(state0_distances) == 0:
-                raise InsufficientData(err_msg.format('distance'))
+                raise InsufficientData(err_msg.format("distance"))
             state0_distances /= _MDTRAJ_DISTANCE_UNIT
             distance_cutoff = np.percentile(state0_distances, 99.9) * _MDTRAJ_DISTANCE_UNIT
 
@@ -1895,18 +1930,18 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         """Return the restraint energies and distance cutoff to be used for unbiasing."""
         apply_energy_cutoff, apply_distance_cutoff = self._get_use_restraint_cutoff()
         # Determine automatically the restraint distance cutoff is necessary.
-        if apply_distance_cutoff and self.restraint_distance_cutoff == 'auto':
+        if apply_distance_cutoff and self.restraint_distance_cutoff == "auto":
             _, restraint_distance_cutoff = self._determine_automatic_restraint_cutoff(compute_energy_cutoff=False)
-            logger.debug('Chosen automatically a restraint distance cutoff of {}'.format(restraint_distance_cutoff))
-        elif self.restraint_distance_cutoff == 'auto':
+            logger.debug("Chosen automatically a restraint distance cutoff of {}".format(restraint_distance_cutoff))
+        elif self.restraint_distance_cutoff == "auto":
             restraint_distance_cutoff = None
         else:
             restraint_distance_cutoff = self.restraint_distance_cutoff
         # Determine automatically the restraint energy cutoff is necessary.
-        if apply_energy_cutoff and self.restraint_energy_cutoff == 'auto':
+        if apply_energy_cutoff and self.restraint_energy_cutoff == "auto":
             restraint_energy_cutoff, _ = self._determine_automatic_restraint_cutoff(compute_distance_cutoff=False)
-            logger.debug('Chosen automatically a restraint energy cutoff of {}kT'.format(restraint_energy_cutoff))
-        elif self.restraint_energy_cutoff == 'auto':
+            logger.debug("Chosen automatically a restraint energy cutoff of {}kT".format(restraint_energy_cutoff))
+        elif self.restraint_energy_cutoff == "auto":
             restraint_energy_cutoff = None
         else:
             restraint_energy_cutoff = self.restraint_energy_cutoff
@@ -1925,14 +1960,9 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # Get matrix of dimensionless free energy differences and uncertainty estimate.
         logger.debug("Computing covariance matrix...")
 
-        try:
-            # pymbar 3
-            Deltaf_ij, dDeltaf_ij = self.mbar.getFreeEnergyDifferences()
-        except AttributeError:
-            # pymbar 4
-            results = self.mbar.compute_free_energy_differences()
-            Deltaf_ij = results['Delta_f']
-            dDeltaf_ij = results['dDelta_f']
+        results = self.mbar.compute_free_energy_differences()
+        Deltaf_ij = results["Delta_f"]
+        dDeltaf_ij = results["dDelta_f"]
 
         # Matrix of free energy differences
         logger.debug("Deltaf_ij:")
@@ -1952,8 +1982,8 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             logger.debug(str_row)
 
         # Return free energy differences and an estimate of the covariance.
-        free_energy_dict = {'value': Deltaf_ij, 'error': dDeltaf_ij}
-        self._computed_observables['free_energy'] = free_energy_dict
+        free_energy_dict = {"value": Deltaf_ij, "error": dDeltaf_ij}
+        self._computed_observables["free_energy"] = free_energy_dict
 
     def get_free_energy(self):
         """
@@ -1968,18 +1998,19 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         dDeltaF_ij : ndarray of floats, shape (K,K) or (K+2, K+2)
             Error in the difference in free energy from each state relative to each other state
         """
-        if self._computed_observables['free_energy'] is None:
+        if self._computed_observables["free_energy"] is None:
             self._compute_free_energy()
-        free_energy_dict = self._computed_observables['free_energy']
-        return free_energy_dict['value'], free_energy_dict['error']
+        free_energy_dict = self._computed_observables["free_energy"]
+        return free_energy_dict["value"], free_energy_dict["error"]
 
     def _compute_enthalpy_and_entropy(self):
         """Function to compute the cached values of enthalpy and entropy"""
-        (f_k, df_k, H_k, dH_k, S_k, dS_k) = self.mbar.computeEntropyAndEnthalpy()
-        enthalpy = {'value': H_k, 'error': dH_k}
-        entropy = {'value': S_k, 'error': dS_k}
-        self._computed_observables['enthalpy'] = enthalpy
-        self._computed_observables['entropy'] = entropy
+        result = self.mbar.compute_entropy_and_enthalpy()
+        (f_k, df_k, H_k, dH_k, S_k, dS_k) = result.values()  # here was deep shit
+        enthalpy = {"value": H_k, "error": dH_k}
+        entropy = {"value": S_k, "error": dS_k}
+        self._computed_observables["enthalpy"] = enthalpy
+        self._computed_observables["entropy"] = entropy
 
     def get_enthalpy(self):
         """
@@ -1995,10 +2026,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             Error in the difference in enthalpy from each state relative to each other state
 
         """
-        if self._computed_observables['enthalpy'] is None:
+        if self._computed_observables["enthalpy"] is None:
             self._compute_enthalpy_and_entropy()
-        enthalpy_dict = self._computed_observables['enthalpy']
-        return enthalpy_dict['value'], enthalpy_dict['error']
+        enthalpy_dict = self._computed_observables["enthalpy"]
+        return enthalpy_dict["value"], enthalpy_dict["error"]
 
     def get_entropy(self):
         """
@@ -2014,10 +2045,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             Error in the difference in enthalpy from each state relative to each other state
 
         """
-        if self._computed_observables['entropy'] is None:
+        if self._computed_observables["entropy"] is None:
             self._compute_enthalpy_and_entropy()
-        entropy_dict = self._computed_observables['entropy']
-        return entropy_dict['value'], entropy_dict['error']
+        entropy_dict = self._computed_observables["entropy"]
+        return entropy_dict["value"], entropy_dict["error"]
 
     def _get_equilibration_data(self, energies=None, neighborhoods=None, replica_state_indices=None):
         """Generate the equilibration data from best practices.
@@ -2056,24 +2087,30 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
             n_effective_max = (self.max_n_iterations - n_equilibration + 1) / g_t
 
         else:
-            u_n = self.get_effective_energy_timeseries(energies=energies, neighborhoods=neighborhoods, replica_state_indices=replica_state_indices)
+            u_n = self.get_effective_energy_timeseries(
+                energies=energies, neighborhoods=neighborhoods, replica_state_indices=replica_state_indices
+            )
 
             # For SAMS, if there is a second-stage start time, use only the asymptotically optimal data
-            t0 = self._n_equilibration_iterations if self._n_equilibration_iterations is not None else 1 # if self._n_equilibration_iterations was not specified, discard minimization frame
+            t0 = (
+                self._n_equilibration_iterations if self._n_equilibration_iterations is not None else 1
+            )  # if self._n_equilibration_iterations was not specified, discard minimization frame
             try:
                 iteration = len(u_n)
-                data = self._reporter.read_online_analysis_data(None, 't0')
-                t0 = max(t0, int(data['t0'][0]))
-                logger.debug('t0 found; using initial t0 = {} instead of 1'.format(t0))
+                data = self._reporter.read_online_analysis_data(None, "t0")
+                t0 = max(t0, int(data["t0"][0]))
+                logger.debug("t0 found; using initial t0 = {} instead of 1".format(t0))
             except Exception as e:
                 # No t0 found
-                logger.debug('Could not find t0: {}'.format(e))
+                logger.debug("Could not find t0: {}".format(e))
                 pass
 
             # Discard equilibration samples.
             # TODO: if we include u_n[0] (the energy right after minimization) in the equilibration detection,
             # TODO:         then number_equilibrated is 0. Find a better way than just discarding first frame.
-            i_t, g_i, n_effective_i = multistate.utils.get_equilibration_data_per_sample(u_n[t0:], max_subset=self._max_subset)
+            i_t, g_i, n_effective_i = multistate.utils.get_equilibration_data_per_sample(
+                u_n[t0:], max_subset=self._max_subset
+            )
             n_effective_max = n_effective_i.max()
             i_max = n_effective_i.argmax()
             n_equilibration = i_t[i_max] + t0
@@ -2081,10 +2118,10 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
 
         # Store equilibration data
         self._equilibration_data = tuple([n_equilibration, g_t, n_effective_max])
-        logger.debug('Equilibration data:')
-        logger.debug(' number of iterations discarded to equilibration : {}'.format(n_equilibration))
-        logger.debug(' statistical inefficiency of production region   : {}'.format(g_t))
-        logger.debug(' effective number of uncorrelated samples        : {}'.format(n_effective_max))
+        logger.debug("Equilibration data:")
+        logger.debug(" number of iterations discarded to equilibration : {}".format(n_equilibration))
+        logger.debug(" statistical inefficiency of production region   : {}".format(g_t))
+        logger.debug(" effective number of uncorrelated samples        : {}".format(n_effective_max))
 
         return n_equilibration, g_t, n_effective_max
 
@@ -2092,13 +2129,13 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
     # Cached properties.
     # -------------------------------------------------------------------------
 
-    unbias_restraint = CachedProperty('unbias_restraint', check_changes=True)
-    restraint_energy_cutoff = CachedProperty('restraint_energy_cutoff', check_changes=True)
-    restraint_distance_cutoff = CachedProperty('restraint_distance_cutoff', check_changes=True)
+    unbias_restraint = CachedProperty("unbias_restraint", check_changes=True)
+    restraint_energy_cutoff = CachedProperty("restraint_energy_cutoff", check_changes=True)
+    restraint_distance_cutoff = CachedProperty("restraint_distance_cutoff", check_changes=True)
 
     _equilibration_data = CachedProperty(
-        name='equilibration_data',
-        dependencies=['reporter', 'max_n_iterations'],
+        name="equilibration_data",
+        dependencies=["reporter", "max_n_iterations"],
         check_changes=True,
     )
 
@@ -2107,8 +2144,8 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         return instance._get_equilibration_data()
 
     _decorrelated_state_indices_ln = CachedProperty(
-        name='decorrelated_state_indices_ln',
-        dependencies=['equilibration_data', 'use_full_trajectory'],
+        name="decorrelated_state_indices_ln",
+        dependencies=["equilibration_data", "use_full_trajectory"],
     )
 
     @_decorrelated_state_indices_ln.default
@@ -2125,7 +2162,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # Map ln columns to the state.
         for iteration_idx, iteration in enumerate(decorrelated_iterations):
             for replica_idx in range(instance.n_replicas):
-                frame_idx = replica_idx*len(decorrelated_iterations) + iteration_idx
+                frame_idx = replica_idx * len(decorrelated_iterations) + iteration_idx
                 # Set output array.
                 state_idx = replica_state_indices[iteration, replica_idx]
                 decorrelated_state_indices_ln[frame_idx] = state_idx
@@ -2133,8 +2170,8 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         return decorrelated_state_indices_ln
 
     _decorrelated_u_ln = CachedProperty(
-        name='decorrelated_u_ln',
-        dependencies=['equilibration_data', 'use_full_trajectory'],
+        name="decorrelated_u_ln",
+        dependencies=["equilibration_data", "use_full_trajectory"],
     )
 
     @_decorrelated_u_ln.default
@@ -2142,8 +2179,8 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         return instance._compute_mbar_decorrelated_energies()[0]
 
     _decorrelated_N_l = CachedProperty(
-        name='decorrelated_N_l',
-        dependencies=['equilibration_data', 'use_full_trajectory'],
+        name="decorrelated_N_l",
+        dependencies=["equilibration_data", "use_full_trajectory"],
     )
 
     @_decorrelated_N_l.default
@@ -2151,9 +2188,15 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         return instance._compute_mbar_decorrelated_energies()[1]
 
     _unbiased_decorrelated_u_ln = CachedProperty(
-        name='unbiased_decorrelated_u_ln',
-        dependencies=['unbias_restraint', 'restraint_energy_cutoff', 'restraint_distance_cutoff',
-                      'decorrelated_state_indices_ln', 'decorrelated_u_ln', 'decorrelated_N_l'],
+        name="unbiased_decorrelated_u_ln",
+        dependencies=[
+            "unbias_restraint",
+            "restraint_energy_cutoff",
+            "restraint_distance_cutoff",
+            "decorrelated_state_indices_ln",
+            "decorrelated_u_ln",
+            "decorrelated_N_l",
+        ],
     )
 
     @_unbiased_decorrelated_u_ln.default
@@ -2161,9 +2204,15 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         return instance._compute_mbar_unbiased_energies()[0]
 
     _unbiased_decorrelated_N_l = CachedProperty(
-        name='unbiased_decorrelated_N_l',
-        dependencies=['unbias_restraint', 'restraint_energy_cutoff', 'restraint_distance_cutoff',
-                      'decorrelated_state_indices_ln', 'decorrelated_u_ln', 'decorrelated_N_l'],
+        name="unbiased_decorrelated_N_l",
+        dependencies=[
+            "unbias_restraint",
+            "restraint_energy_cutoff",
+            "restraint_distance_cutoff",
+            "decorrelated_state_indices_ln",
+            "decorrelated_u_ln",
+            "decorrelated_N_l",
+        ],
     )
 
     @_unbiased_decorrelated_N_l.default
@@ -2171,9 +2220,8 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         return instance._compute_mbar_unbiased_energies()[1]
 
     mbar = CachedProperty(
-        name='mbar',
-        dependencies=['unbiased_decorrelated_u_ln', 'unbiased_decorrelated_N_l',
-                      '_extra_analysis_kwargs'],
+        name="mbar",
+        dependencies=["unbiased_decorrelated_u_ln", "unbiased_decorrelated_N_l", "_extra_analysis_kwargs"],
     )
 
     @mbar.default
@@ -2182,8 +2230,7 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         # Shape is (n_states + n_unsampled_states, n_samples)
         # N_l[l] is the number of decorrelated samples sampled from thermodynamic state l, some can be 0.
         # Shape is (n_states + n_unsampled_states, )
-        return instance._create_mbar(instance._unbiased_decorrelated_u_ln,
-                                     instance._unbiased_decorrelated_N_l)
+        return instance._create_mbar(instance._unbiased_decorrelated_u_ln, instance._unbiased_decorrelated_N_l)
 
     # -------------------------------------------------------------------------
     # Dynamic properties.
@@ -2210,12 +2257,14 @@ class MultiStateSamplerAnalyzer(PhaseAnalyzer):
         if self.use_full_trajectory:
             return np.arange(self.max_n_iterations + 1, dtype=int)
         equilibrium_iterations = np.array(range(self.n_equilibration_iterations, self.max_n_iterations + 1))
-        decorrelated_iterations_indices = subsample_correlated_data(equilibrium_iterations,
-                                                                             self.statistical_inefficiency)
+        decorrelated_iterations_indices = subsample_correlated_data(
+            equilibrium_iterations, self.statistical_inefficiency
+        )
         return equilibrium_iterations[decorrelated_iterations_indices]
 
 
 # https://choderalab.slack.com/files/levi.naden/F4G6L9X8S/quick_diagram.png
+
 
 class MultiPhaseAnalyzer(object):
     """
@@ -2289,36 +2338,39 @@ class MultiPhaseAnalyzer(object):
     ObservablesRegistry
 
     """
+
     def __init__(self, phases):
         """
         Create the compound phase which is any combination of phases to generate a new MultiPhaseAnalyzer.
 
         """
         # Compare ObservableRegistries
-        ref_registry = phases['phases'][0].registry
-        for phase in phases['phases'][1:]:
+        ref_registry = phases["phases"][0].registry
+        for phase in phases["phases"][1:]:
             # Use is comparison since we are checking same insetance
             if phase.registry is not ref_registry:
-                raise ValueError("Not all phases have the same ObservablesRegistry! Observable calculation "
-                                 "will be inconsistent!")
+                raise ValueError(
+                    "Not all phases have the same ObservablesRegistry! Observable calculation " "will be inconsistent!"
+                )
         self.registry = ref_registry
         # Determine available observables
         observables = []
         for observable in self.registry.observables:
             shared_observable = True
-            for phase in phases['phases']:
+            for phase in phases["phases"]:
                 if observable not in phase.observables:
                     shared_observable = False
                     break
             if shared_observable:
                 observables.append(observable)
         if len(observables) == 0:
-            raise RuntimeError("There are no shared computable observable between the phases, combining them will do "
-                               "nothing.")
+            raise RuntimeError(
+                "There are no shared computable observable between the phases, combining them will do " "nothing."
+            )
         self._observables = tuple(observables)
-        self._phases = phases['phases']
-        self._names = phases['names']
-        self._signs = phases['signs']
+        self._phases = phases["phases"]
+        self._names = phases["names"]
+        self._signs = phases["signs"]
         # Set the methods shared between both objects
         for observable in self.observables:
             setattr(self, "get_" + observable, self._spool_function(observable))
@@ -2369,7 +2421,7 @@ class MultiPhaseAnalyzer(object):
         for phase in self.phases:
             phase.clear()
 
-    def _combine_phases(self, other, operator='+'):
+    def _combine_phases(self, other, operator="+"):
         """
         Function to combine the phases regardless of operator to reduce code duplication. Creates a new
         :class:`MultiPhaseAnalyzer` object based on the combined phases of the other. Accepts either a
@@ -2408,35 +2460,35 @@ class MultiPhaseAnalyzer(object):
                 final_new_names.append(multistate.utils.generate_phase_name(name, other_names + names))
             names.extend(final_new_names)
             for new_sign in new_signs:
-                if (operator == '-' and new_sign == '+') or (operator == '+' and new_sign == '-'):
-                    signs.append('-')
+                if (operator == "-" and new_sign == "+") or (operator == "+" and new_sign == "-"):
+                    signs.append("-")
                 else:
-                    signs.append('+')
+                    signs.append("+")
             signs.extend(new_signs)
             phases.extend(new_phases)
         elif isinstance(other, PhaseAnalyzer):
             names.append(multistate.utils.generate_phase_name(other.name, names))
-            if (operator == '-' and other._sign == '+') or (operator == '+' and other._sign == '-'):
-                signs.append('-')
+            if (operator == "-" and other._sign == "+") or (operator == "+" and other._sign == "-"):
+                signs.append("-")
             else:
-                signs.append('+')
-            other._sign = '+'  # Recast to positive if negated
+                signs.append("+")
+            other._sign = "+"  # Recast to positive if negated
             phases.append(other)
         else:
             baseerr = "cannot {} 'MultiPhaseAnalyzer' and '{}' objects"
-            if operator == '+':
-                err = baseerr.format('add', type(other))
+            if operator == "+":
+                err = baseerr.format("add", type(other))
             else:
-                err = baseerr.format('subtract', type(other))
+                err = baseerr.format("subtract", type(other))
             raise TypeError(err)
-        phase_pass = {'phases': phases, 'signs': signs, 'names': names}
+        phase_pass = {"phases": phases, "signs": signs, "names": names}
         return MultiPhaseAnalyzer(phase_pass)
 
     def __add__(self, other):
-        return self._combine_phases(other, operator='+')
+        return self._combine_phases(other, operator="+")
 
     def __sub__(self, other):
-        return self._combine_phases(other, operator='-')
+        return self._combine_phases(other, operator="-")
 
     def __neg__(self):
         """
@@ -2445,10 +2497,10 @@ class MultiPhaseAnalyzer(object):
         """
         new_signs = []
         for sign in self._signs:
-            if sign == '+':
-                new_signs.append('-')
+            if sign == "+":
+                new_signs.append("-")
             else:
-                new_signs.append('+')
+                new_signs.append("+")
         # return a *shallow* copy of self with the signs reversed
         output = copy.copy(self)
         output._signs = new_signs
@@ -2459,12 +2511,12 @@ class MultiPhaseAnalyzer(object):
         header = "MultiPhaseAnalyzer<{}>"
         output_string = ""
         for phase_name, sign in zip(self.names, self.signs):
-            if output_string == "" and sign == '-':
-                output_string += '{}{} '.format(sign, phase_name)
+            if output_string == "" and sign == "-":
+                output_string += "{}{} ".format(sign, phase_name)
             elif output_string == "":
-                output_string += '{} '.format(phase_name)
+                output_string += "{} ".format(phase_name)
             else:
-                output_string += '{} {} '.format(sign, phase_name)
+                output_string += "{} {} ".format(sign, phase_name)
         return header.format(output_string)
 
     def __repr__(self):
@@ -2472,12 +2524,12 @@ class MultiPhaseAnalyzer(object):
         header = "MultiPhaseAnalyzer <\n{}>"
         output_string = ""
         for phase, phase_name, sign in zip(self.phases, self.names, self.signs):
-            if output_string == "" and sign == '-':
-                output_string += '{}{} ({})\n'.format(sign, phase_name, phase)
+            if output_string == "" and sign == "-":
+                output_string += "{}{} ({})\n".format(sign, phase_name, phase)
             elif output_string == "":
-                output_string += '{} ({})\n'.format(phase_name, phase)
+                output_string += "{} ({})\n".format(phase_name, phase)
             else:
-                output_string += '    {} {} ({})\n'.format(sign, phase_name, phase)
+                output_string += "    {} {} ({})\n".format(sign, phase_name, phase)
         return header.format(output_string)
 
     def _compute_observable(self, observable_name):
@@ -2495,13 +2547,14 @@ class MultiPhaseAnalyzer(object):
             The observable as its combined between all the phases
 
         """
+
         def prepare_phase_observable(single_phase):
             """Helper function to cast the observable in terms of observable's registry"""
             observable = getattr(single_phase, "get_" + observable_name)()
             if isinstance(single_phase, MultiPhaseAnalyzer):
                 if observable_name in self.registry.observables_with_error:
                     observable_payload = dict()
-                    observable_payload['value'], observable_payload['error'] = observable
+                    observable_payload["value"], observable_payload["error"] = observable
                 else:
                     observable_payload = observable
             else:
@@ -2509,15 +2562,17 @@ class MultiPhaseAnalyzer(object):
                 if observable_name in self.registry.observables_with_error:
                     observable_payload = {}
                     if observable_name in self.registry.observables_defined_by_phase:
-                        observable_payload['value'], observable_payload['error'] = observable
+                        observable_payload["value"], observable_payload["error"] = observable
                     elif observable_name in self.registry.observables_defined_by_single_state:
-                        observable_payload['value'] = observable[0][single_phase.reference_states[0]]
-                        observable_payload['error'] = observable[1][single_phase.reference_states[0]]
+                        observable_payload["value"] = observable[0][single_phase.reference_states[0]]
+                        observable_payload["error"] = observable[1][single_phase.reference_states[0]]
                     elif observable_name in self.registry.observables_defined_by_two_states:
-                        observable_payload['value'] = observable[0][single_phase.reference_states[0],
-                                                                    single_phase.reference_states[1]]
-                        observable_payload['error'] = observable[1][single_phase.reference_states[0],
-                                                                    single_phase.reference_states[1]]
+                        observable_payload["value"] = observable[0][
+                            single_phase.reference_states[0], single_phase.reference_states[1]
+                        ]
+                        observable_payload["error"] = observable[1][
+                            single_phase.reference_states[0], single_phase.reference_states[1]
+                        ]
                     else:
                         raise_registry_error = True
                 else:  # No error
@@ -2526,34 +2581,36 @@ class MultiPhaseAnalyzer(object):
                     elif observable_name in self.registry.observables_defined_by_single_state:
                         observable_payload = observable[single_phase.reference_states[0]]
                     elif observable_name in self.registry.observables_defined_by_two_states:
-                        observable_payload = observable[single_phase.reference_states[0],
-                                                        single_phase.reference_states[1]]
+                        observable_payload = observable[
+                            single_phase.reference_states[0], single_phase.reference_states[1]
+                        ]
                     else:
                         raise_registry_error = True
                 if raise_registry_error:
-                    raise RuntimeError("You have requested an observable that is improperly registered in the "
-                                       "ObservablesRegistry!")
+                    raise RuntimeError(
+                        "You have requested an observable that is improperly registered in the " "ObservablesRegistry!"
+                    )
             return observable_payload
 
         def modify_final_output(passed_output, payload, sign):
             if observable_name in self.registry.observables_with_error:
-                if sign == '+':
-                    passed_output['value'] += payload['value']
+                if sign == "+":
+                    passed_output["value"] += payload["value"]
                 else:
-                    passed_output['value'] -= payload['value']
+                    passed_output["value"] -= payload["value"]
                 if observable_name in self.registry.observables_with_error_adding_linear:
-                    passed_output['error'] += payload['error']
+                    passed_output["error"] += payload["error"]
                 elif observable_name in self.registry.observables_with_error_adding_quadrature:
-                    passed_output['error'] = (passed_output['error']**2 + payload['error']**2)**0.5
+                    passed_output["error"] = (passed_output["error"] ** 2 + payload["error"] ** 2) ** 0.5
             else:
-                if sign == '+':
+                if sign == "+":
                     passed_output += payload
                 else:
                     passed_output -= payload
             return passed_output
 
         if observable_name in self.registry.observables_with_error:
-            final_output = {'value': 0, 'error': 0}
+            final_output = {"value": 0, "error": 0}
         else:
             final_output = 0
         for phase, phase_sign in zip(self.phases, self.signs):
@@ -2561,5 +2618,5 @@ class MultiPhaseAnalyzer(object):
             final_output = modify_final_output(final_output, phase_observable, phase_sign)
         if observable_name in self.registry.observables_with_error:
             # Cast output to tuple
-            final_output = (final_output['value'], final_output['error'])
+            final_output = (final_output["value"], final_output["error"])
         return final_output
