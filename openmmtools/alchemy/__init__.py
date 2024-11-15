@@ -19,4 +19,4 @@ Provided classes include:
 
 # Automatically importing everything from the lower level alchemy module to avoid API breakage
 from .alchemy import AlchemicalState, AlchemicalFunction, AlchemicalStateError, AlchemicalRegion, \
-    AbsoluteAlchemicalFactory
+    AbsoluteAlchemicalFactory, _ALCHEMICAL_REGION_ARGS
