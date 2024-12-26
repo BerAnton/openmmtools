@@ -1788,7 +1788,9 @@ class ThermodynamicState(object):
         """Set barostat pressure."""
         if isinstance(barostat, openmm.MonteCarloAnisotropicBarostat):
             p = pressure.value_in_unit(unit.bar)
-            context.setParameter(barostat.Pressure(), openmm.Vec3(p, p, p)*unit.bar)
+            context.setParameter(barostat.PressureX(), p*unit.bar)
+            context.setParameter(barostat.PressureY(), p*unit.bar)
+            context.setParameter(barostat.PressureZ(), p*unit.bar)
         else:
             context.setParameter(barostat.Pressure(), pressure)
 
